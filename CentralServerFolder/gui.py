@@ -1,0 +1,62 @@
+import tkinter as tk
+from tkinter import scrolledtext
+import threading
+import queue
+
+def start_gui(data_queue, log_queue):
+    root = tk.Tk()
+    root.title("Central Server – Environmental Monitor")
+
+    # --- Aggregated Data Panel ---
+    latest_frame = tk.LabelFrame(root, text="Latest Aggregated Data")
+    latest_frame.pack(fill="x", padx=10, pady=5)
+
+    temp_var = tk.StringVar(value="-- °C")
+    hum_var = tk.StringVar(value="-- %")
+    ts_var = tk.StringVar(value="Last Update: --")
+
+    tk.Label(latest_frame, text="Avg Temperature:").grid(row=0, column=0, sticky="e", padx=5)
+    tk.Label(latest_frame, textvariable=temp_var).grid(row=0, column=1, sticky="w")
+
+    tk.Label(latest_frame, text="Avg Humidity:").grid(row=0, column=2, sticky="e", padx=5)
+    tk.Label(latest_frame, textvariable=hum_var).grid(row=0, column=3, sticky="w")
+
+    tk.Label(latest_frame, textvariable=ts_var).grid(row=1, column=0, columnspan=4, pady=3)
+
+    # --- Anomalies Panel ---
+    anomaly_frame = tk.LabelFrame(root, text="Anomalies Detected")
+    anomaly_frame.pack(fill="both", expand=True, padx=10, pady=5)
+
+    anomaly_box = scrolledtext.ScrolledText(anomaly_frame, height=8)
+    anomaly_box.pack(fill="both", expand=True)
+
+    # --- Logs Panel ---
+    log_frame = tk.LabelFrame(root, text="Logs")
+    log_frame.pack(fill="both", expand=True, padx=10, pady=5)
+
+    log_box = scrolledtext.ScrolledText(log_frame, height=10)
+    log_box.pack(fill="both", expand=True)
+
+    def update_gui():
+        while not data_queue.empty():
+            data = data_queue.get()
+            temp = data.get("avg_temperature", "--")
+            hum = data.get("avg_humidity", "--")
+            ts = data.get("timestamp", "--")
+            temp_var.set(f"{temp} °C")
+            hum_var.set(f"{hum} %")
+            ts_var.set(f"Last Update: {ts}")
+
+            for anomaly in data.get("anomalies", []):
+                anomaly_text = f"[{anomaly['timestamp']}] {anomaly['sensor_id']} - {anomaly['type']} ({anomaly['value']})"
+                anomaly_box.insert(tk.END, anomaly_text + "\n")
+                anomaly_box.see(tk.END)
+
+        while not log_queue.empty():
+            log_box.insert(tk.END, log_queue.get() + "\n")
+            log_box.see(tk.END)
+
+        root.after(1000, update_gui)
+
+    root.after(1000, update_gui)
+    root.mainloop()
