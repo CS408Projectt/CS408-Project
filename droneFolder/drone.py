@@ -1,4 +1,3 @@
-
 import socket
 import threading
 import tkinter as tk
@@ -13,14 +12,21 @@ import time
 
 HOST = "0.0.0.0"
 PORT = 5647
+FORWARD_HOST = "0.0.0.0"
+FORWARD_PORT = 6000
+
 N = 5
 T = 1
 anomaly_queue = deque()
-
+forward_queue = deque()
 remainingBattery = 100
 status = "active"
 battery_threshold = 20
 
+# Global persistent socket
+forward_socket = None
+
+# GUI Setup
 root = tk.Tk()
 root.title("Sensor Server")
 
@@ -101,22 +107,40 @@ def processData(message):
         isinstance(message.get("timestamp"), str) and is_valid_time(message["timestamp"])
     )
 
+def setup_forward_socket():
+    global forward_socket
+    while True:
+        try:
+            forward_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            forward_socket.connect((FORWARD_HOST, FORWARD_PORT))
+            log_to_log_panel("Connected to forwarding server at 0.0.0.0:6000.")
+            break
+        except Exception as e:
+            log_to_log_panel(f"Retrying connection to forwarding server... ({e})")
+            time.sleep(2)
+
+def forward_data_to_host(data_dict):
+    global forward_socket
+    try:
+        forward_socket.sendall((json.dumps(data_dict) + "\n").encode())
+    except Exception as e:
+        log_to_log_panel(f"Failed to send data: {e}")
+
 def process_one_message(message, sensor_id):
+    global status
     anomalyOccurred = not processData(message)
+    message["anomaly"] = anomalyOccurred
     try:
         ts = datetime.strptime(message["timestamp"], "%Y-%m-%dT%H:%M:%SZ")
         formatted = f"{message['sensor_id']} reporting: {message['temperature']}°C, {message['humidity']}%, {ts.time()}, {ts.date()}"
         if anomalyOccurred:
             log_to_real_time(formatted + ", Anomaly detected")
             log_to_log_panel("Anomaly occurred")
-            try:
-                time_str = ts.time()
-                if not is_valid_temperature(message["temperature"]):
-                    log_to_agg_panel(f"Anomaly occurred. The sensor with ID {sensor_id} reported an out of range temperature value at {time_str}.")
-                if not is_valid_humidity(message["humidity"]):
-                    log_to_agg_panel(f"Anomaly occurred. The sensor with ID {sensor_id} reported an out of range humidity value at {time_str}.")
-            except Exception:
-                pass
+            time_str = ts.time()
+            if not is_valid_temperature(message["temperature"]):
+                log_to_agg_panel(f"Anomaly occurred. The sensor with ID {sensor_id} reported an out of range temperature value at {time_str}.")
+            if not is_valid_humidity(message["humidity"]):
+                log_to_agg_panel(f"Anomaly occurred. The sensor with ID {sensor_id} reported an out of range humidity value at {time_str}.")
         else:
             log_to_real_time(formatted)
             anomaly_queue.append(message)
@@ -126,6 +150,13 @@ def process_one_message(message, sensor_id):
                 mean_hum = statistics.mean([d["humidity"] for d in samples])
                 agg_message = f"At the last {N} readings: Average humidity is {mean_hum:.1f}%, Average temperature is {mean_temp:.1f}°C."
                 log_to_agg_panel(agg_message)
+                forward_data_to_host({"meanTemperature": mean_temp, "meanHumidity": mean_hum})
+
+        if status == "active":
+            forward_data_to_host(message)
+        else:
+            forward_queue.append(message)
+
     except Exception:
         pass
 
@@ -173,6 +204,9 @@ def batterySimulation():
                 remainingBattery += 1
             else:
                 status = "active"
+                log_to_log_panel("Battery full. Returning to active mode.")
+                while forward_queue:
+                    forward_data_to_host(forward_queue.popleft())
         time.sleep(T)
 
 def server_thread():
@@ -184,6 +218,7 @@ def server_thread():
             conn, addr = s.accept()
             threading.Thread(target=client_connection, args=(conn, addr), daemon=True).start()
 
+setup_forward_socket()
 threading.Thread(target=server_thread, daemon=True).start()
 threading.Thread(target=batterySimulation, daemon=True).start()
 update_labels()
