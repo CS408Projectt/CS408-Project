@@ -1,6 +1,5 @@
 import tkinter as tk
 from tkinter import scrolledtext
-import threading
 import queue
 
 def start_gui(data_queue, log_queue):
@@ -40,17 +39,30 @@ def start_gui(data_queue, log_queue):
     def update_gui():
         while not data_queue.empty():
             data = data_queue.get()
-            temp = data.get("avg_temperature", "--")
-            hum = data.get("avg_humidity", "--")
-            ts = data.get("timestamp", "--")
-            temp_var.set(f"{temp} °C")
-            hum_var.set(f"{hum} %")
-            ts_var.set(f"Last Update: {ts}")
 
-            for anomaly in data.get("anomalies", []):
-                anomaly_text = f"[{anomaly['timestamp']}] {anomaly['sensor_id']} - {anomaly['type']} ({anomaly['value']})"
-                anomaly_box.insert(tk.END, anomaly_text + "\n")
+            # Handle average message
+            if "meanTemperature" in data and "meanHumidity" in data:
+                temp_var.set(f"{data['meanTemperature']} °C")
+                hum_var.set(f"{data['meanHumidity']} %")
+                ts_var.set("Last Update: Aggregated Reading")
+                log_box.insert(tk.END, f"[INFO] Received aggregated data: Temp = {data['meanTemperature']}°C, Hum = {data['meanHumidity']}%\n")
+                log_box.see(tk.END)
+
+            # Handle anomaly message
+            elif "anomaly" in data and data.get("anomaly", False):
+                anomaly_log = (
+                    f"[{data.get('timestamp', '--')}] Anomaly from {data.get('sensor_id', 'unknown')} – "
+                    f"Temp: {data.get('temperature', '--')}°C, Hum: {data.get('humidity', '--')}%"
+                )
+                anomaly_box.insert(tk.END, anomaly_log + "\n")
                 anomaly_box.see(tk.END)
+                log_box.insert(tk.END, f"[ANOMALY] {anomaly_log}\n")
+                log_box.see(tk.END)
+
+            # If it doesn't match either format
+            else:
+                log_box.insert(tk.END, f"[WARNING] Unrecognized data format: {data}\n")
+                log_box.see(tk.END)
 
         while not log_queue.empty():
             log_box.insert(tk.END, log_queue.get() + "\n")
