@@ -48,18 +48,22 @@ def start_gui(data_queue, log_queue):
                 log_box.insert(tk.END, f"[INFO] Received aggregated data: Temp = {data['meanTemperature']}°C, Hum = {data['meanHumidity']}%\n")
                 log_box.see(tk.END)
 
-            # Handle anomaly message
-            elif "anomaly" in data and data.get("anomaly", False):
-                anomaly_log = (
-                    f"[{data.get('timestamp', '--')}] Anomaly from {data.get('sensor_id', 'unknown')} – "
-                    f"Temp: {data.get('temperature', '--')}°C, Hum: {data.get('humidity', '--')}%"
-                )
-                anomaly_box.insert(tk.END, anomaly_log + "\n")
-                anomaly_box.see(tk.END)
-                log_box.insert(tk.END, f"[ANOMALY] {anomaly_log}\n")
-                log_box.see(tk.END)
+            # Handle anomaly or normal message
+            elif "anomaly" in data:
+                if data["anomaly"]:
+                    anomaly_log = (
+                        f"[{data.get('timestamp', '--')}] Anomaly from {data.get('sensor_id', 'unknown')} – "
+                        f"Temp: {data.get('temperature', '--')}°C, Hum: {data.get('humidity', '--')}%"
+                    )
+                    anomaly_box.insert(tk.END, anomaly_log + "\n")
+                    anomaly_box.see(tk.END)
+                    log_box.insert(tk.END, f"[ANOMALY] {anomaly_log}\n")
+                    log_box.see(tk.END)
+                else:
+                    log_box.insert(tk.END, f"[INFO] Normal reading received: {data}\n")
+                    log_box.see(tk.END)
 
-            # If it doesn't match either format
+            # Fallback for unknown formats
             else:
                 log_box.insert(tk.END, f"[WARNING] Unrecognized data format: {data}\n")
                 log_box.see(tk.END)
