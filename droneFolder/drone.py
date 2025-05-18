@@ -163,8 +163,11 @@ def process_one_message(message, sensor_id):
                 mean_hum = statistics.mean([d["humidity"] for d in samples])
                 agg_message = f"At the last {N} readings: Average humidity is {mean_hum:.1f}%, Average temperature is {mean_temp:.1f}°C."
                 log_to_agg_panel(agg_message)
-                forward_data_to_host({"meanTemperature": mean_temp, "meanHumidity": mean_hum})
-
+                if status == "active":
+                    forward_data_to_host({"meanTemperature": mean_temp, "meanHumidity": mean_hum})
+                else:
+                    forward_queue.append({"meanTemperature": mean_temp, "meanHumidity": mean_hum})
+                    
         if status == "active":
             forward_data_to_host(message)
         else:
