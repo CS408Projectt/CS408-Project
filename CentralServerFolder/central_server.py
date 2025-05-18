@@ -38,7 +38,8 @@ def handle_client_connection(conn, addr):
             except Exception as e:
                 log_queue.put(f"{now()} [error] connection issue: {e}")
                 break
-    log_queue.put(f"{now()} [disconnected] drone disconnected from {addr}")
+    log_queue.put(f"{now()} [disconnected] drone disconnected from {addr}") # Log disconnection event
+
 
 # function to start the TCP server
 def start_server():
@@ -51,7 +52,7 @@ def start_server():
         conn, addr = server.accept()
         threading.Thread(target=handle_client_connection, args=(conn, addr), daemon=True).start()
 
-# main program entry point
+# main program entry point which starts the server and launches the GUI
 if __name__ == "__main__":
     threading.Thread(target=start_server, daemon=True).start()
     start_gui(data_queue, log_queue)  # launch GUI
