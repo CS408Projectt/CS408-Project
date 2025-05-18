@@ -28,7 +28,7 @@ forward_socket = None
 
 # GUI Setup
 root = tk.Tk()
-root.title("Sensor Server")
+root.title("Drone")
 
 top_frame = tk.Frame(root)
 top_frame.pack(side="top", fill="x")
