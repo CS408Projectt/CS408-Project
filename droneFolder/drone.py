@@ -26,7 +26,7 @@ battery_threshold = 20
 # Global persistent socket
 forward_socket = None
 
-# Below are code for the GUI Setup
+# GUI Setup
 root = tk.Tk()
 root.title("Sensor Server")
 
@@ -36,10 +36,23 @@ top_frame.pack(side="top", fill="x")
 slider_label = tk.Label(top_frame, text="Battery Threshold:")
 slider_label.pack(side="left", padx=(10, 2), pady=5)
 
+# Container for slider and labels beneath it
+slider_container = tk.Frame(top_frame)
+slider_container.pack(side="left", padx=(0, 10))
+
 threshold_var = tk.IntVar(value=battery_threshold)
-threshold_slider = ttk.Scale(top_frame, from_=10, to=50, orient="horizontal",
+threshold_slider = ttk.Scale(slider_container, from_=10, to=50, orient="horizontal", length=200,
                              command=lambda val: threshold_var.set(round(float(val))))
-threshold_slider.pack(side="left", padx=(0, 10))
+threshold_slider.pack()
+
+# Value labels beneath the slider
+slider_label_frame = tk.Frame(slider_container)
+slider_label_frame.pack(fill="x")
+
+for i, val in enumerate(range(10, 51, 10)):
+    label = tk.Label(slider_label_frame, text=str(val), anchor="center")
+    label.grid(row=0, column=i, sticky="nsew")
+    slider_label_frame.grid_columnconfigure(i, weight=1)
 
 battery_label_var = tk.StringVar()
 status_label_var = tk.StringVar()
@@ -88,7 +101,6 @@ def update_labels():
     status_label_var.set(f"Status: {display_status.get(status, status)}")
     root.after(500, update_labels)
 
-# Helper functions for processData
 def is_valid_time(s):
     try:
         datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ")
@@ -96,12 +108,10 @@ def is_valid_time(s):
     except ValueError:
         return False
 
-
 def is_valid_humidity(n): return 0 <= n <= 100
 def is_valid_temperature(n): return -100 <= n <= 100
 def is_valid_sensor_id(s): return bool(re.fullmatch(r"sensor\d+", s))
 
-# This function returns true if there are no anomalies in the sensor data, and false otherwise.
 def processData(message):
     return (
         isinstance(message.get("sensor_id"), str) and is_valid_sensor_id(message["sensor_id"]) and
@@ -110,7 +120,6 @@ def processData(message):
         isinstance(message.get("timestamp"), str) and is_valid_time(message["timestamp"])
     )
 
-# This function creates a socket for communication between the drone and the central server
 def setup_forward_socket():
     global forward_socket
     while True:
@@ -123,7 +132,6 @@ def setup_forward_socket():
             log_to_log_panel(f"Retrying connection to forwarding server... ({e})")
             time.sleep(2)
 
-# This function sends the input data to the central server
 def forward_data_to_host(data_dict):
     global forward_socket
     try:
@@ -131,15 +139,14 @@ def forward_data_to_host(data_dict):
     except Exception as e:
         log_to_log_panel(f"Failed to send data: {e}")
 
-# This function completes processing the data received from the sensor nodes
 def process_one_message(message, sensor_id):
     global status
-    anomalyOccurred = not processData(message) 
-    message["anomaly"] = anomalyOccurred    # Add an additional field to the data received from a sensor node, indicating whether there is an anomaly in the data
+    anomalyOccurred = not processData(message)
+    message["anomaly"] = anomalyOccurred
     try:
-        ts = datetime.strptime(message["timestamp"], "%Y-%m-%dT%H:%M:%SZ")  # Convert the string formatted timestamp to a datetime object
-        formatted = f"{message['sensor_id']} reporting: {message['temperature']}°C, {message['humidity']}%, {ts.time()}, {ts.date()}"   # Format the data in a readable way
-        if anomalyOccurred: # If an anomaly is present in the data, log it to the real time and log panels, then specify the type of anomaly in the aggregate panel
+        ts = datetime.strptime(message["timestamp"], "%Y-%m-%dT%H:%M:%SZ")
+        formatted = f"{message['sensor_id']} reporting: {message['temperature']}°C, {message['humidity']}%, {ts.time()}, {ts.date()}"
+        if anomalyOccurred:
             log_to_real_time(formatted + ", Anomaly detected")
             log_to_log_panel("Anomaly occurred")
             time_str = ts.time()
@@ -147,43 +154,42 @@ def process_one_message(message, sensor_id):
                 log_to_agg_panel(f"Anomaly occurred. The sensor with ID {sensor_id} reported an out of range temperature value at {time_str}.")
             if not is_valid_humidity(message["humidity"]):
                 log_to_agg_panel(f"Anomaly occurred. The sensor with ID {sensor_id} reported an out of range humidity value at {time_str}.")
-        else:   # If no anomaly is present;
-            log_to_real_time(formatted) # Log it to the real time panel
-            agg_queue.append(message)   # Add the data to the queue for mean temperature and humidity calculations
-            if len(agg_queue) >= N:     # If the queue reached N elements;
-                samples = [agg_queue.popleft() for _ in range(N)]   # Pop N elements
-                mean_temp = statistics.mean([d["temperature"] for d in samples])    # Calculate mean temperature
-                mean_hum = statistics.mean([d["humidity"] for d in samples])    # Calculate mean humidity
+        else:
+            log_to_real_time(formatted)
+            agg_queue.append(message)
+            if len(agg_queue) >= N:
+                samples = [agg_queue.popleft() for _ in range(N)]
+                mean_temp = statistics.mean([d["temperature"] for d in samples])
+                mean_hum = statistics.mean([d["humidity"] for d in samples])
                 agg_message = f"At the last {N} readings: Average humidity is {mean_hum:.1f}%, Average temperature is {mean_temp:.1f}°C."
-                log_to_agg_panel(agg_message)   # Log the mean values to the aggregate panel
-                forward_data_to_host({"meanTemperature": mean_temp, "meanHumidity": mean_hum})  # Forward this information to the central server
+                log_to_agg_panel(agg_message)
+                forward_data_to_host({"meanTemperature": mean_temp, "meanHumidity": mean_hum})
 
-        if status == "active":  # If the status is active, forward the data to the central server
+        if status == "active":
             forward_data_to_host(message)
-        else:   # Otherwise, enqueue it to forward_queue. Once the status is set back to active, the data in the queue will be immediately sent to the central server.
+        else:
             forward_queue.append(message)
 
     except Exception:
         pass
 
-# This function handles the connection between a sensor node and the drone
 def client_connection(conn, addr):
     sensor_id = None
     with conn:
-        try:    # The "Sensor with ID {sensor_id} connected." message is logged once the sensor node sends its first data. So we handle the first data and the rest separately
-            first_data = conn.recv(1024)    # Wait for the sensor node to send data
+        try:
+            first_data = conn.recv(1024)
             if not first_data:
                 return
-            message = json.loads(first_data.decode())   # Parse the data
-            sensor_id = message.get("sensor_id", "unknown")    
-            log_to_log_panel(f"Sensor with ID {sensor_id} connected.") 
-            process_one_message(message, sensor_id) 
+            message = json.loads(first_data.decode())
+            sensor_id = message.get("sensor_id", "unknown")
+            log_to_log_panel(f"Sensor with ID {sensor_id} connected.")
+            process_one_message(message, sensor_id)
         except Exception:
             return
 
-        while True: # Once the first data part is handled, keep on listening for data from the sensor node in an infinite loop
+        while True:
             try:
-                data = conn.recv(1024)  
+                data = conn.recv(1024)
                 if not data:
                     break
                 message = json.loads(data.decode())
@@ -197,32 +203,32 @@ def client_connection(conn, addr):
 def batterySimulation():
     global remainingBattery, status, battery_threshold
     while True:
-        battery_threshold = threshold_var.get() ## Fetch the threshold value set by the user
-        if status == "active":  ## While the status active, decrease the battery level by 1%
+        battery_threshold = threshold_var.get()
+        if status == "active":
             if remainingBattery > battery_threshold:
                 remainingBattery -= 1
-            else:   ## Once the threshold is reached
-                status = "returningToBase"  ## Set the status to Returning To Base
+            else:
+                status = "returningToBase"
                 log_to_log_panel("Battery has fallen below the threshold, returning to base..")
-                time.sleep(10)  ## Simulate the time it takes for the drone to return to the base
-                status = "charging"     ## Once this time is over, set the status to Charging
-        elif status == "charging":  ## While the status is charging;
-            if remainingBattery < 100:  ## Increase the battery by 1% until it reaches 100%
+                time.sleep(10)
+                status = "charging"
+        elif status == "charging":
+            if remainingBattery < 100:
                 remainingBattery += 1
-            else:   ## Once battery is restored;
-                status = "active"   # Set the status to Active
-                log_to_log_panel("Battery full. Returning to active mode.") # Log the necessary message
-                while forward_queue:    # Forward the data that was collected while the drone was not active
+            else:
+                status = "active"
+                log_to_log_panel("Battery full. Returning to active mode.")
+                while forward_queue:
                     forward_data_to_host(forward_queue.popleft())
         time.sleep(T)
 
 def server_thread():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, PORT))  
-        s.listen()  # Listen for connections
+        s.bind((HOST, PORT))
+        s.listen()
         print(f"Server is running on {HOST}:{PORT}")
-        while True: # Accept client connections (sensor nodes) and start a client_connection thread for each sensor node
-            conn, addr = s.accept() 
+        while True:
+            conn, addr = s.accept()
             threading.Thread(target=client_connection, args=(conn, addr), daemon=True).start()
 
 setup_forward_socket()
